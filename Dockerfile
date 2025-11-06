@@ -15,16 +15,16 @@ RUN apt-get update && apt-get install -y \
 # Download and install Nextflow
 RUN wget -qO- https://get.nextflow.io | bash
 
-# Copy the Nextflow script into the container
-COPY rnaseq_script.nf /root/pipeline.nf
+# # Copy the Nextflow script into the container
+# COPY rnaseq_script.nf /root/pipeline.nf
 
-# Copy the necessary reference files into the container
-COPY genomeIndex/ /root/genomeIndex/
-COPY annotation.gtf /root/annotation.gtf
-COPY adapters.fa /root/adapters.fa
+# # Copy the necessary reference files into the container
+# COPY genomeIndex/ /root/genomeIndex/
+# COPY annotation.gtf /root/annotation.gtf
+# COPY adapters.fa /root/adapters.fa
 
 # Set the working directory
 WORKDIR /root
 
 # Run the Nextflow script
-CMD ["nextflow", "run", "rna_script.nf"]
+# CMD ["nextflow", "run", "rna_script.nf"]

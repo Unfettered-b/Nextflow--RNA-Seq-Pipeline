@@ -1,102 +1,84 @@
 #!/usr/bin/env nextflow
 
-// Input and Output Directories
-params.input_dir = "${params.input_dir}"
-params.output_dir = "${params.output_dir}"
-
-// Reference files
+params.input_dir   = "${params.input_dir}"
+params.output_dir  = "${params.output_dir}"
 params.genomeIndex = "${params.genomeIndex}"
-params.annotation = "${params.annotation}"
-params.adapters = "${params.adapters}"
-
-// Threads
-params.threads = "${params.threads}"
-
-
-//process takes fastq files input
-//utilizes trimmomatic tool to trim for quality and adapter sequences
+params.annotation  = "${params.annotation}"
+params.adapters    = "${params.adapters}"
+params.threads     = "${params.threads}"
 
 process trimming {
     input:
-        file("${params.input_dir}/*.fastq")
-
+        path reads
     output:
-        file("${params.output_dir}/*.trim.fastq")
-
+        path "${reads.simpleName}_trimmed.fastq.gz"
     script:
         """
-        trimmomatic SE -phred33 ${input} ${output} ILLUMINACLIP:${params.adapters}:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
+        OUTPUT="${reads.simpleName}_trimmed.fastq.gz"
+        trimmomatic SE -phred33 ${reads} $OUTPUT \
+            ILLUMINACLIP:${params.adapters}:2:30:10 \
+            LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
         """
 }
-
-
-// fastqc reports of the trimmed reads
 
 process fastqc_trimmed {
     input:
-        file("${params.output_dir}/*.trim.fastq")
-
+        path trimmed_reads
     output:
-        file("${params.output_dir}/fastqc/*.zip")
-
+        path "${trimmed_reads.simpleName}_fastqc.zip"
+        path "${trimmed_reads.simpleName}_fastqc.html"
     script:
         """
-        fastqc ${input} -o ${params.output_dir}/fastqc
+        fastqc ${trimmed_reads} --outdir .
         """
 }
-
-//star aligner to align reads to reference genome
 
 process alignment {
     input:
-        file("${params.output_dir}/*.trim.fastq")
-
+        path trimmed_reads
     output:
-        file("${params.output_dir}/*.bam")
-
+        path "${trimmed_reads.simpleName}_Aligned.sortedByCoord.out.bam"
     script:
         """
-        STAR --genomeDir ${params.genomeIndex} --readFilesIn ${input} --outFileNamePrefix ${output} --runThreadN ${params.threads}
+        STAR \
+            --genomeDir ${params.genomeIndex} \
+            --readFilesIn ${trimmed_reads} \
+            --runThreadN ${params.threads} \
+            --outFileNamePrefix ${trimmed_reads.simpleName}_ \
+            --outSAMtype BAM SortedByCoordinate
         """
 }
-
-// takes algined bam files and uses featurecount to perform quanitification
-// returns a tab separated gene counts
 
 process quantification {
     input:
-        file("${params.output_dir}/*.bam")
-
+        path bam_files
     output:
-        file("${params.output_dir}/*.counts")
-
+        path "gene_counts.txt"
     script:
         """
-        featureCounts -a ${params.annotation} -o ${output} ${input} -p -t exon -g gene_id -T ${params.threads}
+        featureCounts -a ${params.annotation} -o gene_counts.txt ${bam_files} -p -t exon -g gene_id -T ${params.threads}
         """
 }
-
-
-// generates multiQC reports taking input counts and fastqc
 
 process multiqc {
     input:
-        file("${params.output_dir}/*.counts"),
-        file("${params.output_dir}/fastqc/*.zip")
-
+        path all_results
     output:
-        file("${params.output_dir}/multiqc_report.html")
-
+        path "multiqc_report.html"
     script:
         """
-        multiqc ${params.output_dir} -f -o ${params.output_dir}
+        multiqc . -f -o .
         """
 }
 
-//keywords to link out put of one process as input of the other
+workflow {
+    reads_ch = channel.fromPath("${params.input_dir}/*.fastq")
 
+    trimmed_ch = trimming(reads_ch)
+    fastqc_ch = fastqc_trimmed(trimmed_ch)
+    aligned_ch = alignment(trimmed_ch)
+    counts_ch = quantification(aligned_ch)
 
-trimming.output -> fastqc_trimmed.input
-fastqc_trimmed.output -> alignment.input
-alignment.output -> quantification.input
-quantification.output -> multiqc.input
+    all_results = counts_ch.mix(fastqc_ch)
+    multiqc(all_results)
+}
